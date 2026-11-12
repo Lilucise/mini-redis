@@ -31,9 +31,22 @@ int main(){
     // 设置socket
     int yes = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    set_nonblocking(listen_fd);
 
     std::cout << "socket OK!" << std::endl;
 
+    // 创建epoll
+    int epfd = epoll_create1(0);
+    if(epfd == -1) {perror("epoll error"); return 1;}
+
+    // epoll注册监听fd
+    epoll_event ev{};
+    ev.event = EPOLLIN;
+    ev.data.fd = listen_fd;
+    if(epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev) == -1) {perror("epoll_ctl ADD listen_fd error"); return -1}
+    // epoll_ctl(epoll, op, fd, event);
+
+    // sockaddr
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);   // 监听本机所有网卡
@@ -48,7 +61,8 @@ int main(){
     int listen_check = listen(listen_fd, 128);     // 128是握手后未accept的排队上限
     if(listen_check == -1) {perror("listen error"); return 1;}
 
-    std::cout << "listen OK!" << std::endl;
+    std::cout << "listen OK! epfd=" << epfd << std::endl;
+    std::cout << "server ready on :9999" << std::endl;
 
     int accept_num = 0;
 
