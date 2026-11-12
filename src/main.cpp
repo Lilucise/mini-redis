@@ -5,7 +5,22 @@
 #include <arpa/inet.h>     // htons/htonl
 #include <unistd.h>        // read/write/close
 #include <cstdio>          // perror
-#include <cstring>
+#include <cstring>         // str
+#include <fcntl>           // fcntl
+
+// 将fd设为非阻塞
+int set_nonblocking(int fd){
+    // 标志位读取
+    int flags = fcntl(fd, F_GETFL, 0);
+    if(flags == -1) {perror("fcntl F_GETFL error"); return -1;}
+
+    // 仅将O_NONBLOCK标志位置1
+    flags |= O_NONBLOCK;
+
+    // 回写标志位
+    if(fcntl(fd, F_SETFL, flags) == -1) {perror("fcntl F_SETFL error"); return -1;}
+    return 0;
+}
 
 int main(){
     // 申请通信端点
@@ -54,7 +69,7 @@ int main(){
                 perror("read error");
                 break;
             } // error
-            std::cout << "recive " << n << " bytes" << std::endl;
+            std::cout << "received " << n << " bytes" << std::endl;
             write(conn_fd, buf, n); // write(accepted_fd, wr_from, wr_len);
         }
         close(conn_fd); // 关闭连接
