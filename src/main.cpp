@@ -11,7 +11,7 @@ int main(){
     // 申请通信端点
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-    if(listen_fd == -1) {perror("listen"); return 1;}
+    if(listen_fd == -1) {perror("socket"); return 1;}
 
     // 设置socket
     int yes = 1;
