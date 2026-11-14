@@ -1,12 +1,16 @@
 #include <iostream>
 
 #include <sys/socket.h>    // socket/bind/listen/accept
+#include <sys/epoll.h>
 #include <netinet/in.h>    // sockaddr_in
 #include <arpa/inet.h>     // htons/htonl
 #include <unistd.h>        // read/write/close
 #include <cstdio>          // perror
 #include <cstring>         // str
-#include <fcntl>           // fcntl
+#include <fcntl.h>         // fcntl
+
+// 最大事件数
+constexpr int MAX_EVENTS = 1024; 
 
 // 将fd设为非阻塞
 int set_nonblocking(int fd){
@@ -41,9 +45,9 @@ int main(){
 
     // epoll注册监听fd
     epoll_event ev{};
-    ev.event = EPOLLIN;
+    ev.events = EPOLLIN;
     ev.data.fd = listen_fd;
-    if(epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev) == -1) {perror("epoll_ctl ADD listen_fd error"); return -1}
+    if(epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev) == -1) {perror("epoll_ctl ADD listen_fd error"); return -1;}
     // epoll_ctl(epoll, op, fd, event);
 
     // sockaddr
@@ -64,28 +68,43 @@ int main(){
     std::cout << "listen OK! epfd=" << epfd << std::endl;
     std::cout << "server ready on :9999" << std::endl;
 
-    int accept_num = 0;
+    epoll_event events[MAX_EVENTS];
 
     // 轮流处理已握手数据
     while(true){
-        int conn_fd = accept(listen_fd, nullptr, nullptr);      // 建立连接
-        if(conn_fd == -1) {perror("accept error"); return 1;}
-        
-        accept_num++;
-        std::cout << "accepted no." << accept_num << std::endl;
-        
-        // 字符流
-        char buf[1024];
-        while(true){
-            ssize_t n = read(conn_fd, buf, sizeof(buf)); // read(accepted_fd, rd_to, buf_size);
-            if(n == 0) break; // 对端关闭连接
-            if(n < 0){
-                perror("read error");
-                break;
-            } // error
-            std::cout << "received " << n << " bytes" << std::endl;
-            write(conn_fd, buf, n); // write(accepted_fd, wr_from, wr_len);
+        // 本轮就绪的事件个数
+        int n = epoll_wait(epfd, events, MAX_EVENTS, -1); // epoll_wait(epoll_fd, event, max_event, timeout)->ready_events_num // to get ready fd;
+        if(n == -1) {perror("epoll_wait error"); return 1;}
+
+        // 遍历本轮就绪的事件
+        for(int i = 0; i < n; i++){
+            if(events[i].data.fd == listen_fd){
+                int conn_fd = accept(listen_fd, nullptr, nullptr);
+                if(conn_fd == -1){ perror("accept error"); continue;}
+
+                set_nonblocking(conn_fd);
+
+                epoll_event ev{};
+                ev.events = EPOLLIN;
+                ev.data.fd = conn_fd;
+
+                if(epoll_ctl(epfd, EPOLL_CTL_ADD, conn_fd, &ev) == -1) {perror("epoll_ctl ADD conn_fd error"); return -1;}
+            }else{
+                char buf[1024];
+                int fd = events[i].data.fd;
+                ssize_t n = read(fd, buf, sizeof(buf)); // read(accepted_fd, rd_to, buf_size);
+                if(n == 0){
+                    epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
+                    close(fd);
+                }else if(n < 0){
+                    // 暂定
+                    epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
+                    close(fd);
+                }else{
+                    std::cout << "received " << n << " bytes" << std::endl;
+                    write(fd, buf, n); // write(accepted_fd, wr_from, wr_len);
+                }
+            }
         }
-        close(conn_fd); // 关闭连接
     }
 }
