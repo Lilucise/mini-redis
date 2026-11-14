@@ -35,20 +35,9 @@ int main(){
     // 设置socket
     int yes = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-    set_nonblocking(listen_fd);
+    if(set_nonblocking(listen_fd) == -1){perror("listen_socket set_nonblocking error"); return 1};
 
     std::cout << "socket OK!" << std::endl;
-
-    // 创建epoll
-    int epfd = epoll_create1(0);
-    if(epfd == -1) {perror("epoll error"); return 1;}
-
-    // epoll注册监听fd
-    epoll_event ev{};
-    ev.events = EPOLLIN;
-    ev.data.fd = listen_fd;
-    if(epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev) == -1) {perror("epoll_ctl ADD listen_fd error"); return -1;}
-    // epoll_ctl(epoll, op, fd, event);
 
     // sockaddr
     sockaddr_in addr{};
@@ -68,37 +57,57 @@ int main(){
     std::cout << "listen OK! epfd=" << epfd << std::endl;
     std::cout << "server ready on :9999" << std::endl;
 
+    // 创建epoll
+    int epfd = epoll_create1(0);
+    if(epfd == -1) {perror("epoll error"); return 1;}
+
+    // epoll注册监听fd
+    epoll_event ev{};
+    ev.events = EPOLLIN;
+    ev.data.fd = listen_fd;
+    if(epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev) == -1) {perror("epoll_ctl ADD listen_fd error"); return -1;}
+    // epoll_ctl(epoll, op, fd, event);
+
     // events收件箱，读取内核里epoll的fd
     epoll_event events[MAX_EVENTS];
 
     // 轮流处理已握手数据
     while(true){
         // 本轮就绪的事件个数
-        int n = epoll_wait(epfd, events, MAX_EVENTS, -1); // epoll_wait(epoll_fd, event, max_event, timeout)->ready_events_num // to get ready fd;
-        if(n == -1) {perror("epoll_wait error"); return 1;}
+        int ready_events_num = epoll_wait(epfd, events, MAX_EVENTS, -1); // epoll_wait(epoll_fd, event, max_event, timeout)->ready_events_num // to get ready fd;
+        if(ready_events_num == -1) {perror("epoll_wait error"); return 1;}
 
         // 遍历本轮就绪的事件
-        for(int i = 0; i < n; i++){
+        for(int i = 0; i < ready_events_num; i++){
             if(events[i].data.fd == listen_fd){
                 int conn_fd = accept(listen_fd, nullptr, nullptr);
                 if(conn_fd == -1){ perror("accept error"); continue;}
 
-                set_nonblocking(conn_fd);
+                // 将建立的连接设非阻塞
+                if(set_nonblocking(conn_fd) == -1){
+                    perror("accepted connfd set_nonblocking error");
+                    close(conn_fd);
+                    continue;
+                }
 
                 epoll_event ev{};
                 ev.events = EPOLLIN;
                 ev.data.fd = conn_fd;
 
                 // 给epoll内核注册已经accept的fd
-                if(epoll_ctl(epfd, EPOLL_CTL_ADD, conn_fd, &ev) == -1) {perror("epoll_ctl ADD conn_fd error"); return -1;}
+                if(epoll_ctl(epfd, EPOLL_CTL_ADD, conn_fd, &ev) == -1) {
+                    perror("epoll_ctl ADD conn_fd error");
+                    close(conn_fd);
+                    continue;
+                }
             }else{
                 char buf[1024];
                 int fd = events[i].data.fd;
-                ssize_t n = read(fd, buf, sizeof(buf)); // read(accepted_fd, rd_to, buf_size);
-                if(n == 0){
+                ssize_t received_bytes = read(fd, buf, sizeof(buf)); // read(accepted_fd, rd_to, buf_size);
+                if(received_bytes == 0){
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
                     close(fd);
-                }else if(n < 0){
+                }else if(received_bytes < 0){
                     // 暂定
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
                     close(fd);
