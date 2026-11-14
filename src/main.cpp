@@ -68,6 +68,7 @@ int main(){
     std::cout << "listen OK! epfd=" << epfd << std::endl;
     std::cout << "server ready on :9999" << std::endl;
 
+    // events收件箱，读取内核里epoll的fd
     epoll_event events[MAX_EVENTS];
 
     // 轮流处理已握手数据
@@ -88,6 +89,7 @@ int main(){
                 ev.events = EPOLLIN;
                 ev.data.fd = conn_fd;
 
+                // 给epoll内核注册已经accept的fd
                 if(epoll_ctl(epfd, EPOLL_CTL_ADD, conn_fd, &ev) == -1) {perror("epoll_ctl ADD conn_fd error"); return -1;}
             }else{
                 char buf[1024];
