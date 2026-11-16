@@ -63,7 +63,7 @@ int main(){
 
     // epoll注册监听fd
     epoll_event ev{};
-    ev.events = EPOLLIN;
+    ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = listen_fd;
     if(epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev) == -1) {perror("epoll_ctl ADD listen_fd error"); return -1;}
     // epoll_ctl(epoll, op, fd, event);
@@ -91,7 +91,7 @@ int main(){
                 }
 
                 epoll_event ev{};
-                ev.events = EPOLLIN;
+                ev.events = EPOLLIN | EPOLLET;
                 ev.data.fd = conn_fd;
 
                 // 给epoll内核注册已经accept的fd
