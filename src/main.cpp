@@ -35,7 +35,7 @@ int main(){
     // 设置socket
     int yes = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-    if(set_nonblocking(listen_fd) == -1){perror("listen_socket set_nonblocking error"); return 1};
+    if(set_nonblocking(listen_fd) == -1){perror("listen_socket set_nonblocking error"); return 1;}
 
     std::cout << "socket OK!" << std::endl;
 
@@ -54,9 +54,6 @@ int main(){
     int listen_check = listen(listen_fd, 128);     // 128是握手后未accept的排队上限
     if(listen_check == -1) {perror("listen error"); return 1;}
 
-    std::cout << "listen OK! epfd=" << epfd << std::endl;
-    std::cout << "server ready on :9999" << std::endl;
-
     // 创建epoll
     int epfd = epoll_create1(0);
     if(epfd == -1) {perror("epoll error"); return 1;}
@@ -71,6 +68,9 @@ int main(){
     // events收件箱，读取内核里epoll的fd
     epoll_event events[MAX_EVENTS];
 
+    std::cout << "listen OK! epfd=" << epfd << std::endl;
+    std::cout << "server ready on :9999" << std::endl; 
+
     // 轮流处理已握手数据
     while(true){
         // 本轮就绪的事件个数
@@ -78,42 +78,68 @@ int main(){
         if(ready_events_num == -1) {perror("epoll_wait error"); return 1;}
 
         // 遍历本轮就绪的事件
+        // ET模式下，数据只在进入到缓冲区时通知
         for(int i = 0; i < ready_events_num; i++){
+            // 事件A：listen_fd被读取，查看listen_fd是否有握手后连接需要accept
             if(events[i].data.fd == listen_fd){
-                int conn_fd = accept(listen_fd, nullptr, nullptr);
-                if(conn_fd == -1){ perror("accept error"); continue;}
+                // 一次读完listen_fd需要accept的连接，并全部注册到epoll
+                while(true){
+                    int conn_fd = accept(listen_fd, nullptr, nullptr);
+                    if(conn_fd == -1){
+                        if(errno == EAGAIN || errno == EWOULDBLOCK) break;  // listen_fd中已握手连接已经全部accept
+                        perror("accept error");
+                        break;
+                    }
+                    // 将建立的连接设非阻塞
+                    if(set_nonblocking(conn_fd) == -1){
+                        perror("accepted connfd set_nonblocking error");
+                        close(conn_fd);
+                        break;
+                    }
 
-                // 将建立的连接设非阻塞
-                if(set_nonblocking(conn_fd) == -1){
-                    perror("accepted connfd set_nonblocking error");
-                    close(conn_fd);
-                    continue;
+                    // 创建event，并给epoll内核注册已经accept的fd
+                    epoll_event ev{};
+                    ev.events = EPOLLIN | EPOLLET;
+                    ev.data.fd = conn_fd;
+                    if(epoll_ctl(epfd, EPOLL_CTL_ADD, conn_fd, &ev) == -1) {
+                        perror("epoll_ctl ADD conn_fd error");
+                        close(conn_fd);
+                        break;
+                    }
                 }
-
-                epoll_event ev{};
-                ev.events = EPOLLIN | EPOLLET;
-                ev.data.fd = conn_fd;
-
-                // 给epoll内核注册已经accept的fd
-                if(epoll_ctl(epfd, EPOLL_CTL_ADD, conn_fd, &ev) == -1) {
-                    perror("epoll_ctl ADD conn_fd error");
-                    close(conn_fd);
-                    continue;
-                }
-            }else{
+            }
+            // 事件B：accepted_fd就绪，接收字节流并响应
+            else{
                 char buf[1024];
                 int fd = events[i].data.fd;
-                ssize_t received_bytes = read(fd, buf, sizeof(buf)); // read(accepted_fd, rd_to, buf_size);
-                if(received_bytes == 0){
+                // 一次读完一个fd的数据
+                while(true){
+                    ssize_t received_bytes = read(fd, buf, sizeof(buf)); // read(accepted_fd, rd_to, buf_size);
+                    if(received_bytes > 0){
+                        std::cout << "received " << received_bytes << " bytes" << std::endl;
+                        write(fd, buf, received_bytes); // write(accepted_fd, wr_from, wr_len);
+                        continue;
+                    }
+                    if(received_bytes == 0){
+                        epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
+                        close(fd);
+                        break;
+                    }
+                    // received_bytes < 0
+
+                    // 读干了，正常退出，回epoll_wait
+                    if(errno == EAGAIN || errno == EWOULDBLOCK){
+                        break;
+                    }
+                    // 信号被打断，重新读取
+                    if(errno == EINTR){
+                        continue;
+                    }
+
+                    // 异常情况
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
                     close(fd);
-                }else if(received_bytes < 0){
-                    // 暂定
-                    epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
-                    close(fd);
-                }else{
-                    std::cout << "received " << n << " bytes" << std::endl;
-                    write(fd, buf, n); // write(accepted_fd, wr_from, wr_len);
+                    break;
                 }
             }
         }
