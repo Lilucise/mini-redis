@@ -53,3 +53,10 @@ ThreadPool::~ThreadPool(){
         worker.join();
     }
 }
+
+void ThreadPool::enqueue(std::function<void()> task){
+    std::unique_lock<std::mutex> lock(mtx_);
+    tasks_.emplace_back(task);
+    lock.unlock;
+    cv.notify_one();
+}
