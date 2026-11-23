@@ -7,7 +7,7 @@
 
 class ThreadPool{
 public:
-    explicit ThreadPool();                          // 构造
+    explicit ThreadPool(size_t num_threads);        // 构造
     ~ThreadPool();                                  // 析构
 
     void enqueue(std::function<void()> task);       // 任务入队
@@ -19,3 +19,4 @@ private:
     std::condition_variable cv_;                    // 有任务时唤醒线程
     bool stop_ = false;                             // 停止标志位
 };
+
