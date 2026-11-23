@@ -27,7 +27,7 @@ ThreadPool::ThreadPool(size_t num_threads){
             [this]{
                 while(true){
                     std::unique_lock<std::mutex> lock(mtx_);    // 加锁
-                    cv_.wait(lock, [this]{ return stop || !tasks_.empty();});   // 任务为空且未停止就等待
+                    cv_.wait(lock, [this]{ return stop_ || !tasks_.empty();});   // 有任务或停止就不等待
 
                     if(stop_ && tasks_.empty()) break;  // 任务处理完且需要停止就跳出循环(结束)
 
@@ -55,8 +55,9 @@ ThreadPool::~ThreadPool(){
 }
 
 void ThreadPool::enqueue(std::function<void()> task){
-    std::unique_lock<std::mutex> lock(mtx_);
-    tasks_.emplace_back(task);
-    lock.unlock;
-    cv.notify_one();
+    {
+        std::lock_guard<std::mutex> guard(mtx_);
+        tasks_.push(std::move(task));
+    }
+    cv_.notify_one();
 }
