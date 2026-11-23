@@ -20,3 +20,25 @@ private:
     bool stop_ = false;                             // 停止标志位
 };
 
+ThreadPool::ThreadPool(size_t num_threads){
+    for(size_t i = 0; i < num_threads; i++){
+        // 线程绑定一个死循环任务
+        workers_.emplace_back(
+            [this]{
+                while(true){
+                    std::unique_lock<std::mutex> lock(mtx_);    // 加锁
+                    cv_.wait(lock, [this]{ return stop || !tasks_.empty();});   // 任务为空且未停止就等待
+
+                    if(stop_ && tasks_.empty()) break;  // 任务处理完且需要停止就跳出循环(结束)
+
+                    // 处理队首任务
+                    auto task = std::move(tasks_.front());
+                    tasks_.pop();
+                    lock.unkock();  // 解锁
+
+                    task(); // 执行
+                }
+            }
+        );
+    }
+}
