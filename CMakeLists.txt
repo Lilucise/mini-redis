@@ -6,3 +6,4 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(echo_server src/main.cpp)
+add_executable(thread_pool_test src/thread_pool.cpp)

@@ -2,8 +2,9 @@
 #include <mutex>
 #include <condition_variable>
 #include <queue>
-#include <function>
+#include <functional>
 #include <vector>
+#include <iostream>
 
 class ThreadPool{
 public:
@@ -48,7 +49,7 @@ ThreadPool::~ThreadPool(){
     stop_ = true;
     lock.unlock();
 
-    cv.notify_all();
+    cv_.notify_all();
     for(auto& worker : workers_){
         worker.join();
     }
@@ -60,4 +61,13 @@ void ThreadPool::enqueue(std::function<void()> task){
         tasks_.push(std::move(task));
     }
     cv_.notify_one();
+}
+
+// testing main
+int main() {
+    ThreadPool pool(4);
+    for (int i = 0; i < 8; i++) {
+        pool.enqueue([i] { std::cout << "task " << i << " done\n"; });
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));  // 临时手段，等任务跑完
 }
