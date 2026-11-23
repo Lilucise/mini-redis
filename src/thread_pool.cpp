@@ -34,11 +34,22 @@ ThreadPool::ThreadPool(size_t num_threads){
                     // 处理队首任务
                     auto task = std::move(tasks_.front());
                     tasks_.pop();
-                    lock.unkock();  // 解锁
+                    lock.unlock();  // 解锁
 
                     task(); // 执行
                 }
             }
         );
+    }
+}
+
+ThreadPool::~ThreadPool(){
+    std::unique_lock<std::mutex> lock(mtx_);    // 加锁
+    stop_ = true;
+    lock.unlock();
+
+    cv.notify_all();
+    for(auto& worker : workers_){
+        worker.join();
     }
 }
