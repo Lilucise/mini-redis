@@ -131,3 +131,10 @@ Ctrl+] → quit
                                            close(conn_fd) ──→ 释放
                                            回 epoll_wait 💤
 ```
+
+## 2026-11-23 · 线程池类
+
+- thread 线程、mutex 互斥锁、condition_variable 条件变量、functional 函数
+- mutex是一个互斥锁，用unique_lock和lock_guard申请开锁工牌
+- function<void()>是指代任意可调用的函数的类型
+- condition_variable是控制多变量的对象
