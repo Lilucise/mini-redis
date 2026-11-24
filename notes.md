@@ -138,3 +138,25 @@ Ctrl+] → quit
 - mutex是一个互斥锁，用unique_lock和lock_guard申请开锁工牌
 - function<void()>是指代任意可调用的函数的类型
 - condition_variable是控制多变量的对象
+
+## 2026-11-23 · 线程池破坏性实验
+### 实验A：使用cv_.wait(lock)，省略等待条件
+- 预期结果：输出混乱，结果挂起
+- 实验截图：![alt text](ExpA.png)
+- 实验结果：输出混乱，出现“task task 6 done”，
+- 实验原理：两个 worker 同时在往 cout 写，输出咬在一起了。这就是去掉条件检查后的连锁反应：某次虚假唤醒（或条件本不成立的唤醒）后，worker 没查条件直接去取 tasks_.front()——从空队列取 front 是未定义行为，取出的“任务”是垃圾，同时锁的节奏也乱了，连 cout 都开始打架。
+
+### 实验B：执行任务前不解锁
+- 预期结果：结果有序输出
+- 实验截图：![alt text](ExpB.png)
+- 实验结果：结果有序输出
+- 实验原理：第一个拿到锁的 worker 干活期间，其他 worker 全被挡在锁外；4 个线程退化成 1 个。如果任务里再 enqueue 任务，直接死锁
+
+### 实验C：enqueue后不唤醒
+- 预期结果：程序挂死，一条输出都没有（或偶尔有一条后卡住）
+- 实验截图：![alt text](ExpC.png)
+- 实验结果：结果有序输出
+- 实验原理：worker 睡在 wait 里，永远等不到叫醒；析构的 notify_all 也没用——那个广播叫醒的是“睡着的”，而 worker 从没收到过“有活”的信号
+- 结果分析：
+- 时序运气：main 一口气 enqueue 8 个任务的速度，比 worker 睡着快。worker 进入 wait 时先查 pred——队列里已经有货了，pred 为真，根本没睡，直接取活干。notify 只对“已经睡着的人”有意义，没睡就丢不了
+- 析构的兜底：少数情况下某个 worker 真睡了（队列恰好空过一瞬间），后来的任务没 notify 它就丢了通知。但你跑 main 结束时析构函数 notify_all 广播 + 你的退出策略是「stop_ && empty() 才 break」——睡着的 worker 被析构叫醒，发现队列里还有存货，把活干完才走。所以程序照常出全 8 条、正常退出
