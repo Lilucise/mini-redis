@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include "thread_pool.h"
+
 #include <sys/socket.h>    // socket/bind/listen/accept
 #include <sys/epoll.h>
 #include <netinet/in.h>    // sockaddr_in
@@ -8,6 +10,7 @@
 #include <cstdio>          // perror
 #include <cstring>         // str
 #include <fcntl.h>         // fcntl
+#include <string>          // string
 
 // 最大事件数
 constexpr int MAX_EVENTS = 1024; 
@@ -27,6 +30,7 @@ int set_nonblocking(int fd){
 }
 
 int main(){
+    // 初始化
     // 申请通信端点
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -71,6 +75,11 @@ int main(){
     std::cout << "listen OK! epfd=" << epfd << std::endl;
     std::cout << "server ready on :9999" << std::endl; 
 
+    // 线程池！
+    ThreadPool pool(4);
+    std::cout << "thread pool: 4 workers" << std::endl;
+
+    // 事件循环
     // 轮流处理已握手数据
     while(true){
         // 本轮就绪的事件个数
@@ -116,8 +125,16 @@ int main(){
                 while(true){
                     ssize_t received_bytes = read(fd, buf, sizeof(buf)); // read(accepted_fd, rd_to, buf_size);
                     if(received_bytes > 0){
+                        // 将任务发送给线程池
                         std::cout << "received " << received_bytes << " bytes" << std::endl;
-                        write(fd, buf, received_bytes); // write(accepted_fd, wr_from, wr_len);
+                        std::string data(buf, received_bytes);
+                        pool.enqueue(
+                            // 把write写成lambda，传进pool里
+                            [fd, data = std::move(data)]{
+                                ssize_t w = write(fd, data.data(), data.size());   // write(accepted_fd, wr_from, wr_len);
+                                if(w == -1) perror("write in worker error");
+                            }
+                        );
                         continue;
                     }
                     if(received_bytes == 0){
